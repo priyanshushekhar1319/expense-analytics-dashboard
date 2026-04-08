@@ -301,34 +301,8 @@ function renderSpeedometer(score, message) {
 }
 
 // -----------------------------------------
-// Setup Logic (Chat, Uploads, Navigation, Form)
+// Setup Logic (Uploads, Navigation, Form)
 // -----------------------------------------
-function setupChat() {
-    const btn = document.getElementById('ai-chat-btn');
-    const input = document.getElementById('ai-chat-input');
-    const box = document.getElementById('ai-response');
-    
-    btn.addEventListener('click', async () => {
-        const text = input.value.trim();
-        if(!text) return;
-        
-        box.textContent = "AI is thinking...";
-        box.style.opacity = 0.5;
-        try {
-            const res = await fetch(`${API_BASE_URL}/chat`, {
-                method: 'POST', headers: { 'Content-Type':'application/json' },
-                body: JSON.stringify({ message: text })
-            });
-            const data = await res.json();
-            box.textContent = data.reply;
-        } catch(e) {
-            box.textContent = "Error communicating with optimization engine.";
-        }
-        box.style.opacity = 1;
-        input.value = "";
-    });
-}
-
 function setupBulkUpload() {
     const form = document.getElementById('upload-csv-form');
     if(!form) return;
@@ -444,7 +418,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setupTheme();
     setupNavigation();
     setupAddExpense();
-    setupChat();
     setupBulkUpload();
     setupDateFilter();
     

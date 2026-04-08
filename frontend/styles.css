@@ -184,44 +184,6 @@ header {
 .card h3 { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 0.5rem; }
 .card .value { font-size: 1.8rem; font-weight: 700; margin-bottom: 0.5rem; }
 
-/* AI Chat Section */
-.ai-chat-section {
-    margin-bottom: 2rem;
-    padding: 1.5rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-}
-.ai-input-group {
-    display: flex;
-    gap: 1rem;
-}
-.ai-input-group input {
-    flex: 1;
-    padding: 0.8rem;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    background: rgba(0,0,0,0.1);
-    color: var(--text-primary);
-}
-.ai-input-group button {
-    padding: 0.8rem 1.5rem;
-    border-radius: 8px;
-    border: none;
-    background: var(--primary);
-    color: white;
-    font-weight: 600;
-    cursor: pointer;
-}
-.ai-response {
-    padding: 1rem;
-    background: rgba(99, 102, 241, 0.1);
-    border-left: 4px solid var(--primary);
-    border-radius: 4px;
-    font-size: 0.95rem;
-    min-height: 50px;
-}
-
 /* Charts Grid */
 .charts-grid {
     display: grid;

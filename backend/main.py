@@ -197,37 +197,6 @@ def get_budget_alerts(start_date: str = None, end_date: str = None):
         })
     return results
 
-class ChatMessage(BaseModel):
-    message: str
-
-@app.post("/api/chat")
-def ai_chat(msg: ChatMessage):
-    """Mocks an AI natural language engine using database lookups"""
-    text = msg.message.lower()
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    
-    response = ""
-    if "sabse zyada kharch" in text or "highest" in text:
-        cursor.execute("SELECT category, SUM(amount) as t FROM expenses GROUP BY category ORDER BY t DESC LIMIT 1")
-        res = cursor.fetchone()
-        response = f"Analytical Engine detect kiya hai ki aapne sabse zyada '{res['category']}' pe spend kiya hai (₹{res['t']:,.2f})."
-    
-    elif "bachaa sakta" in text or "save" in text:
-        # Check budgets crossing
-        cursor.execute("SELECT category, SUM(amount) as t FROM expenses GROUP BY category ORDER BY t DESC LIMIT 1")
-        res = cursor.fetchone()
-        response = f"Yes! Aap apni {res['category']} ki spending reduce kar sakte hain. Prediction model kehta hai ki budget adherence se aap roughly ₹10,000 bacha sakte hain agle mahine."
-    
-    elif "predict" in text or "agla mahina" in text:
-        response = "Linear regression models predict kar rahe hain ki aapka spend next month normal bounds me rahega. Check the Prediction Card below!"
-    
-    else:
-        response = "Data processed. Try asking 'Kahan maine sabse zyada kharch kiya?' or about savings!"
-        
-    conn.close()
-    return {"reply": response}
-
 # ----------------------------------------------------
 # 3. CRUD & DATA PIPELINE ENDPOINTS
 # ----------------------------------------------------
