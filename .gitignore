@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.env
+.DS_Store
+
+# We are committing raw_transactions.csv and db.sqlite3 for demonstration purposes
+# so that recruiters can clone and see the dataset without running scripts,
+# BUT normally you'd untrack them, so here they are tracked on purpose.
+# raw_transactions.csv
+# db.sqlite3

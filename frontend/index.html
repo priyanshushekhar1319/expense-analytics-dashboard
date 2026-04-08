@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Expense Analytics Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js" defer></script>
+    <script src="app.js" defer></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard-container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="logo">
+                <h2>Expense<span class="highlight">IQ</span></h2>
+            </div>
+            <nav class="nav-menu">
+                <a href="#" class="nav-item active">Dashboard</a>
+                <a href="#" class="nav-item">Transactions</a>
+                <a href="#" class="nav-item">Reports</a>
+                <a href="#" class="nav-item">Settings</a>
+            </nav>
+            <div class="user-profile">
+                <div class="avatar">DA</div>
+                <div class="user-info">
+                    <p class="name">Data Analyst</p>
+                    <p class="email">user@example.com</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <header>
+                <h1>Overview</h1>
+                <div class="date-filter">
+                    Overview of all historic records (50K+ Rows SQL ETL)
+                </div>
+            </header>
+
+            <!-- Summary Cards -->
+            <section class="summary-cards">
+                <div class="card glass">
+                    <h3>Total Expenses</h3>
+                    <p class="value" id="total-expenses">$0</p>
+                    <span class="trend positive">✔ Data Normalized</span>
+                </div>
+                <div class="card glass">
+                    <h3>Total Transactions</h3>
+                    <p class="value" id="total-transactions">0</p>
+                    <span class="trend positive">✔ SQLite Synced</span>
+                </div>
+                <div class="card glass">
+                    <h3>Top Category</h3>
+                    <p class="value" id="top-category">-</p>
+                    <span class="trend neutral">Based on total spend</span>
+                </div>
+            </section>
+
+            <!-- Charts Section -->
+            <section class="charts-section">
+                <!-- Line Chart: Expense Trend -->
+                <div class="chart-container glass">
+                    <h3>Monthly Spending Trend</h3>
+                    <canvas id="trendChart"></canvas>
+                </div>
+
+                <!-- Doughnut Chart: Category Distribution -->
+                <div class="chart-container glass">
+                    <h3>Expenses by Category</h3>
+                    <canvas id="categoryChart"></canvas>
+                </div>
+            </section>
+
+            <!-- Transactions Table -->
+            <section class="transactions-section glass">
+                <h3>Recent Transactions</h3>
+                <div class="table-container">
+                    <table id="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Transaction ID</th>
+                                <th>Date</th>
+                                <th>Merchant</th>
+                                <th>Category</th>
+                                <th>Amount</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <!-- Populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+</body>
+</html>
