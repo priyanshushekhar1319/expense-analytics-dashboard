@@ -197,6 +197,81 @@ def get_budget_alerts(start_date: str = None, end_date: str = None):
         })
     return results
 
+class ChatMessage(BaseModel):
+    message: str
+
+@app.post("/api/chat")
+def ai_chat(msg: ChatMessage):
+    """Upgraded Mock AI natural language engine using intents"""
+    text = msg.message.lower()
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    # 1. Identify category mentions
+    categories = [k.lower() for k in BUDGETS.keys()]
+    mentioned_cats = [c for c in categories if c in text]
+    
+    # 2. Heuristic Intent Scoring Bag-of-Words
+    score_highest = sum(1 for w in ["zyada", "highest", "most", "max", "top", "bada"] if w in text)
+    score_lowest = sum(1 for w in ["kam", "lowest", "least", "min", "bottom", "chota"] if w in text)
+    score_total = sum(1 for w in ["total", "kitna", "pura", "all amount", "overall"] if w in text)
+    score_avg = sum(1 for w in ["average", "avg", "per month"] if w in text)
+    score_save = sum(1 for w in ["bachaa", "save", "reduce", "cut", "bachat"] if w in text)
+    score_predict = sum(1 for w in ["predict", "agla", "next", "future", "kal"] if w in text)
+    
+    scores = {
+        "highest": score_highest, "lowest": score_lowest, "total": score_total,
+        "avg": score_avg, "save": score_save, "predict": score_predict
+    }
+    top_intent = max(scores, key=scores.get)
+    max_score = scores[top_intent]
+    
+    response = ""
+    
+    if max_score == 0 and len(mentioned_cats) == 0:
+        if "hi" in text or "hello" in text:
+            response = "Hello! Main advanced AI Assistant hoon. Poochiye: 'Mera total kharch kitna hai?' or 'Sabse zyada kahan spend hua?'"
+        else:
+            response = "Main samajh nahi paaya. Aap is tarah pooch sakte hain: 'Total kharch kitna hai?', 'Sabse zyada kahan spend hua?', ya 'Mera agla mahine ka budget kya hoga?'"
+    
+    elif len(mentioned_cats) > 0 and max_score == 0:
+        c = mentioned_cats[0]
+        cursor.execute("SELECT SUM(amount) as t FROM expenses WHERE lower(category) = ?", (c,))
+        res = cursor.fetchone()
+        t = res["t"] or 0
+        response = f"Aapne '{c.title()}' pe total ₹{t:,.2f} spend kiya hai. Iska monthly limit ₹{BUDGETS[c.title()]:,.2f} hai."
+
+    elif top_intent == "highest":
+        cursor.execute("SELECT category, SUM(amount) as t FROM expenses GROUP BY category ORDER BY t DESC LIMIT 1")
+        res = cursor.fetchone()
+        response = f"Aapne sabse zyada '{res['category']}' pe spend kiya hai (Total: ₹{res['t']:,.2f})."
+        
+    elif top_intent == "lowest":
+        cursor.execute("SELECT category, SUM(amount) as t FROM expenses GROUP BY category ORDER BY t ASC LIMIT 1")
+        res = cursor.fetchone()
+        response = f"Aapka sabse kam kharch '{res['category']}' category me hua hai (₹{res['t']:,.2f})."
+
+    elif top_intent == "total":
+        cursor.execute("SELECT SUM(amount) as t FROM expenses")
+        res = cursor.fetchone()
+        response = f"Aapka overall Recorded Spend abhi tak ₹{res['t']:,.2f} hai."
+
+    elif top_intent == "avg":
+        cursor.execute("SELECT SUM(amount) / COUNT(DISTINCT substr(date, 1, 7)) as avg_spend FROM expenses")
+        res = cursor.fetchone()
+        response = f"Aapka Average Monthly expense lagbhag ₹{res['avg_spend']:,.2f} aata hai."
+
+    elif top_intent == "save":
+        cursor.execute("SELECT category, SUM(amount) as t FROM expenses GROUP BY category ORDER BY t DESC LIMIT 1")
+        res = cursor.fetchone()
+        response = f"Agar aap apne top expense '{res['category']}' pe 15% reduction karein, toh aap monthly ₹{res['t']*0.15:,.2f} bacha sakte hain."
+
+    elif top_intent == "predict":
+        response = "Aapke data ka Linear Regression model predict kar raha hai ki next month normal range me rahega. Tracker dashboard par values update ho rahi hain."
+
+    conn.close()
+    return {"reply": response}
+
 # ----------------------------------------------------
 # 3. CRUD & DATA PIPELINE ENDPOINTS
 # ----------------------------------------------------
