@@ -15,6 +15,111 @@ let g_catFilter = '';
 let g_trendGroup = 'month';
 
 // -----------------------------------------
+// AUTHENTICATION ENGINE
+// -----------------------------------------
+let authToken = localStorage.getItem('token');
+let userRole = localStorage.getItem('role');
+
+async function apiFetch(endpoint, options = {}) {
+    if (!options.headers) options.headers = {};
+    if (authToken) {
+        options.headers['Authorization'] = `Bearer ${authToken}`;
+    }
+    const res = await fetch(`${API_BASE_URL}${endpoint}`, options);
+    // If token expired or invalid, auto logout
+    if (res.status === 401 && endpoint !== '/login') {
+        processLogout();
+    }
+    return res;
+}
+
+function processLogout() {
+    authToken = null;
+    userRole = null;
+    localStorage.removeItem('token');
+    localStorage.removeItem('role');
+    document.getElementById('auth-container').style.display = 'flex';
+    document.getElementById('dashboard-container').style.display = 'none';
+}
+
+function processLoginSuccess(token, role) {
+    authToken = token;
+    userRole = role;
+    localStorage.setItem('token', token);
+    localStorage.setItem('role', role);
+    document.getElementById('auth-container').style.display = 'none';
+    document.getElementById('dashboard-container').style.display = 'block';
+    
+    if (role === 'admin') {
+        document.getElementById('nav-admin').style.display = 'block';
+        loadAdminStats();
+    } else {
+        document.getElementById('nav-admin').style.display = 'none';
+    }
+    
+    refreshAllData();
+}
+
+function setupAuth() {
+    const authForm = document.getElementById('auth-form');
+    let isLoginMode = true;
+    
+    document.getElementById('auth-toggle-link').addEventListener('click', (e) => {
+        e.preventDefault();
+        isLoginMode = !isLoginMode;
+        document.getElementById('auth-action-btn').textContent = isLoginMode ? 'Login' : 'Sign Up';
+        document.getElementById('auth-toggle-text').textContent = isLoginMode ? "Don't have an account?" : "Already have an account?";
+        document.getElementById('auth-toggle-link').textContent = isLoginMode ? "Register" : "Login";
+    });
+    
+    document.getElementById('nav-logout').addEventListener('click', (e) => {
+        e.preventDefault();
+        processLogout();
+    });
+    
+    authForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const u = document.getElementById('auth-username').value;
+        const p = document.getElementById('auth-password').value;
+        const msg = document.getElementById('auth-message');
+        msg.textContent = "Processing...";
+        
+        try {
+            if (isLoginMode) {
+                const res = await fetch(`${API_BASE_URL}/login`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    msg.textContent = "";
+                    processLoginSuccess(data.access_token, data.role);
+                } else {
+                    msg.textContent = data.detail || "Login failed.";
+                }
+            } else {
+                const res = await fetch(`${API_BASE_URL}/register`, {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username: u, password: p})
+                });
+                const data = await res.json();
+                if (res.ok) {
+                    msg.style.color = "var(--primary)";
+                    msg.textContent = "Registration successful! You can now log in.";
+                    isLoginMode = true;
+                    document.getElementById('auth-action-btn').textContent = 'Login';
+                } else {
+                    msg.style.color = "var(--danger)";
+                    msg.textContent = data.detail || "Registration failed.";
+                }
+            }
+        } catch(err) {
+            msg.textContent = "Network error connecting to API.";
+        }
+    });
+}
+
+// -----------------------------------------
 // Theme Toggle
 // -----------------------------------------
 function setupTheme() {
@@ -28,7 +133,6 @@ function setupTheme() {
             body.setAttribute('data-theme', 'light');
             btn.textContent = '🌓 Toggle Dark Mode';
         }
-        // Force charts to redraw for text color
         if(categoryChartInstance) categoryChartInstance.update();
         if(trendChartInstance) trendChartInstance.update();
     });
@@ -49,7 +153,7 @@ function objToQueryStr(obj) {
 async function loadSummary() {
     try {
         const query = objToQueryStr({ start_date: g_startDate, end_date: g_endDate });
-        const res = await fetch(`${API_BASE_URL}/summary?${query}`);
+        const res = await apiFetch(`/summary?${query}`);
         const data = await res.json();
         document.getElementById('total-expenses').textContent = formatCurrency(data.total_expenses);
     } catch (e) { console.error('Error fetching summary:', e); }
@@ -57,7 +161,7 @@ async function loadSummary() {
 
 async function loadPrediction() {
     try {
-        const res = await fetch(`${API_BASE_URL}/prediction`);
+        const res = await apiFetch(`/prediction`);
         const data = await res.json();
         const el = document.getElementById('prediction-val');
         const msg = document.getElementById('prediction-msg');
@@ -73,7 +177,7 @@ async function loadPrediction() {
 
 async function loadHealth() {
     try {
-        const res = await fetch(`${API_BASE_URL}/health`);
+        const res = await apiFetch(`/health`);
         const data = await res.json();
         renderSpeedometer(data.score, data.message);
     } catch(e) { console.error('Error fetching health', e); }
@@ -82,7 +186,7 @@ async function loadHealth() {
 async function loadBudgets() {
     try {
         const query = objToQueryStr({ start_date: g_startDate, end_date: g_endDate });
-        const res = await fetch(`${API_BASE_URL}/budgets?${query}`);
+        const res = await apiFetch(`/budgets?${query}`);
         const data = await res.json();
         
         const container = document.getElementById('budgets-container');
@@ -113,7 +217,7 @@ async function loadBudgets() {
 async function loadCategoryData() {
     try {
         const query = objToQueryStr({ start_date: g_startDate, end_date: g_endDate });
-        const res = await fetch(`${API_BASE_URL}/expenses/category?${query}`);
+        const res = await apiFetch(`/expenses/category?${query}`);
         const data = await res.json();
         
         const labels = data.map(item => item.category);
@@ -138,7 +242,6 @@ async function loadCategoryData() {
             options: {
                 responsive: true, maintainAspectRatio: false,
                 plugins: { legend: { position: 'right', labels: {color: '#94a3b8'} } },
-                // INTERACTIVE DRILL DOWN
                 onClick: (e, elements) => {
                     if (elements.length > 0) {
                         const clickedIndex = elements[0].index;
@@ -146,9 +249,8 @@ async function loadCategoryData() {
                         g_catFilter = cat;
                         document.getElementById('txn-cat-filter').textContent = `(Filtered: ${cat})`;
                         document.getElementById('txn-cat-filter').style.color = '#f59e0b';
-                        loadTransactions(); // Reload tables
+                        loadTransactions();
                     } else {
-                        // Clear filter if clicking outside
                         g_catFilter = '';
                         document.getElementById('txn-cat-filter').textContent = '';
                         loadTransactions();
@@ -162,7 +264,7 @@ async function loadCategoryData() {
 async function loadTrendData() {
     try {
         const query = objToQueryStr({ group_by: g_trendGroup });
-        const res = await fetch(`${API_BASE_URL}/expenses/trend?${query}`);
+        const res = await apiFetch(`/expenses/trend?${query}`);
         const data = await res.json();
 
         const labels = data.map(item => item.time);
@@ -220,10 +322,10 @@ async function loadTransactions() {
         const query15 = objToQueryStr({ start_date: g_startDate, end_date: g_endDate, category: g_catFilter, limit: 15 });
         const query100 = objToQueryStr({ start_date: g_startDate, end_date: g_endDate, category: '', limit: 100 });
         
-        const res15 = await fetch(`${API_BASE_URL}/transactions?${query15}`);
+        const res15 = await apiFetch(`/transactions?${query15}`);
         const data15 = await res15.json();
         
-        const res100 = await fetch(`${API_BASE_URL}/transactions?${query100}`);
+        const res100 = await apiFetch(`/transactions?${query100}`);
         const data100 = await res100.json();
         
         const recentTbody = document.getElementById('recent-transactions-body');
@@ -243,12 +345,39 @@ async function loadTransactions() {
             btn.addEventListener('click', async (e) => {
                 const id = e.currentTarget.getAttribute('data-id');
                 if(confirm('Delete transaction permanently?')) {
-                    const delRes = await fetch(`${API_BASE_URL}/transactions/${id}`, { method: 'DELETE' });
+                    const delRes = await apiFetch(`/transactions/${id}`, { method: 'DELETE' });
                     if(delRes.ok) refreshAllData();
                 }
             });
         });
     } catch (e) { console.error('Error fetching txns:', e); }
+}
+
+async function loadAdminStats() {
+    try {
+        const res = await apiFetch(`/admin/stats`);
+        if(!res.ok) return;
+        const data = await res.json();
+        
+        document.getElementById('admin-total-users').textContent = data.aggregate.total_users;
+        document.getElementById('admin-total-txns').textContent = data.aggregate.total_transactions;
+        
+        const tbody = document.getElementById('admin-users-body');
+        tbody.innerHTML = '';
+        
+        data.users.forEach(u => {
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td style="color:var(--accent); font-family:monospace;">USR-${u.id}</td>
+                <td><strong>${u.username}</strong></td>
+                <td>${u.role}</td>
+                <td>${u.created_at}</td>
+                <td>${formatNumber(u.txn_count || 0)}</td>
+                <td style="color:var(--primary); font-weight:bold;">${formatCurrency(u.total_spend || 0)}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+    } catch(e) { console.error('Error fetching admin data', e); }
 }
 
 // -----------------------------------------
@@ -258,7 +387,6 @@ function renderSpeedometer(score, message) {
     const ctx = document.getElementById('healthChart').getContext('2d');
     if (healthChartInstance) healthChartInstance.destroy();
     
-    // Config for half-doughnut gauge
     let color = '#ef4444';
     if(score > 50) color = '#f59e0b';
     if(score > 80) color = '#10b981';
@@ -315,7 +443,7 @@ function setupChat() {
         box.textContent = "AI is thinking...";
         box.style.opacity = 0.5;
         try {
-            const res = await fetch(`${API_BASE_URL}/chat`, {
+            const res = await apiFetch(`/chat`, {
                 method: 'POST', headers: { 'Content-Type':'application/json' },
                 body: JSON.stringify({ message: text })
             });
@@ -337,12 +465,19 @@ function setupBulkUpload() {
         const file = document.getElementById('csv-file').files[0];
         const msg = document.getElementById('upload-msg');
         
-        msg.textContent = "Processing ETL pipeline via Pandas...";
+        msg.textContent = "Processing ETL pipeline...";
         const formData = new FormData();
         formData.append("file", file);
         
         try {
-            const res = await fetch(`${API_BASE_URL}/upload`, { method: 'POST', body: formData });
+            // Note: Don't set Content-Type header manually when sending FormData, 
+            // browser boundary will be missing if forced.
+            let h = {};
+            if(authToken) h['Authorization'] = `Bearer ${authToken}`;
+            
+            const res = await fetch(`${API_BASE_URL}/upload`, { 
+                method: 'POST', body: formData, headers: h
+            });
             const data = await res.json();
             if(res.ok) {
                 msg.textContent = `Success! Parsed and inserted ${data.rows_inserted} rows safely.`;
@@ -353,6 +488,26 @@ function setupBulkUpload() {
             }
         } catch(e) { msg.textContent = "Fatal CSV Error."; }
     });
+    
+    // Auth wrap Export Button
+    const expObj = document.getElementById('export-btn-ui');
+    if(expObj) {
+        expObj.addEventListener('click', async(e) => {
+            e.preventDefault();
+            const res = await apiFetch('/export');
+            if(res.ok) {
+                const blob = await res.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = url;
+                a.download = 'cleaned_expenses.csv';
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+            }
+        });
+    }
 }
 
 function setupDateFilter() {
@@ -380,6 +535,7 @@ function setupDateFilter() {
 }
 
 function refreshAllData() {
+    if(!authToken) return; // Do not fetch if not logged in
     loadSummary();
     loadCategoryData();
     loadTrendData();
@@ -394,6 +550,7 @@ function setupNavigation() {
     const viewSections = document.querySelectorAll('.view-section');
 
     navItems.forEach(item => {
+        if(item.id === 'nav-logout') return; // Skip logout item handling inside tab logic
         item.addEventListener('click', (e) => {
             e.preventDefault();
             navItems.forEach(nav => nav.classList.remove('active'));
@@ -420,7 +577,7 @@ function setupAddExpense() {
         };
 
         try {
-            const res = await fetch(`${API_BASE_URL}/transactions`, {
+            const res = await apiFetch(`/transactions`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
             });
             if (res.ok) {
@@ -441,6 +598,7 @@ function setupAddExpense() {
 // Initialization
 // -----------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
+    setupAuth();
     setupTheme();
     setupNavigation();
     setupAddExpense();
@@ -448,5 +606,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setupBulkUpload();
     setupDateFilter();
     
-    refreshAllData();
+    // Auth state check on load
+    if (authToken) {
+        processLoginSuccess(authToken, userRole);
+    } else {
+        processLogout();
+    }
 });

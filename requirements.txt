@@ -4,3 +4,5 @@ pandas
 numpy
 python-multipart
 pydantic
+PyJWT
+bcrypt

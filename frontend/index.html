@@ -10,7 +10,28 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
-    <div class="dashboard-container">
+    <!-- AUTHENTICATION SCREEN -->
+    <div id="auth-container" class="auth-wrapper glass" style="width: 100vw; height: 100vh; display: flex; align-items: center; justify-content: center;">
+        <div class="auth-card glass" style="width: 400px; padding: 2.5rem; border-radius: 12px; text-align: center;">
+            <h2 style="margin-bottom: 1.5rem; color: var(--primary);">Expense<span class="highlight">IQ</span></h2>
+            <div id="auth-message" style="margin-bottom: 1rem; color: var(--danger); font-size: 0.9rem;"></div>
+            
+            <form id="auth-form" style="display: flex; flex-direction: column; gap: 1rem;">
+                <input type="text" id="auth-username" placeholder="Username" required style="padding: 0.8rem; background: rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px;">
+                <input type="password" id="auth-password" placeholder="Password" required style="padding: 0.8rem; background: rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px;">
+                <button type="submit" id="auth-action-btn" style="padding: 0.8rem; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 1rem;">Login</button>
+            </form>
+            
+            <div style="margin-top: 1.5rem; font-size: 0.9rem; color: var(--text-secondary);">
+                <span id="auth-toggle-text">Don't have an account?</span> 
+                <a href="#" id="auth-toggle-link" style="color: var(--accent); font-weight: 500; cursor: pointer;">Register</a>
+            </div>
+            
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="dashboard-container" class="dashboard-container" style="display: none;">
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="logo">
@@ -23,8 +44,9 @@
                 <a href="#" class="nav-item active" data-target="view-dashboard">Dashboard</a>
                 <a href="#" class="nav-item" data-target="view-transactions">Transactions</a>
                 <a href="#" class="nav-item" data-target="view-reports">Reports & Bulk</a>
+                <a href="#" id="nav-admin" class="nav-item" data-target="view-admin" style="display: none; color: var(--danger);">Admin Console</a>
                 <a href="#" class="nav-item" data-target="view-about">About Developer</a>
-                <a href="#" class="nav-item" data-target="view-settings">Settings</a>
+                <a href="#" class="nav-item" id="nav-logout" style="margin-top: 2rem; color: var(--accent);">Logout</a>
             </nav>
             
             <div class="user-profile">
@@ -200,9 +222,9 @@
                         <p style="color: var(--text-secondary); margin: 1rem 0 2rem 0;">
                             Download the cleaned database into a CSV format.
                         </p>
-                        <a href="/api/export" target="_blank" style="padding: 1rem 2rem; background: var(--accent); color: white; border-radius: 8px; text-decoration: none; font-weight: 600;">
+                        <button id="export-btn-ui" style="padding: 1rem 2rem; background: var(--accent); color: white; border:none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 1rem;">
                             📥 Export Data to CSV
-                        </a>
+                        </button>
                     </div>
                     
                     <div class="card glass" style="padding: 3rem; text-align: center;">
@@ -276,13 +298,43 @@
                 </div>
             </div>
 
-            <!-- VIEW: SETTINGS -->
-            <div id="view-settings" class="view-section" style="display: none;">
-                <header><h1>System Settings</h1></header>
-                <div class="card glass" style="padding: 2rem;">
-                    <h3>Database Setup</h3>
-                    <p style="color: var(--text-secondary);">Currently connected to local SQLite database.</p>
-                </div>
+            <!-- VIEW: ADMIN CONSOLE -->
+            <div id="view-admin" class="view-section" style="display: none;">
+                <header>
+                    <h1>Admin Control Center</h1>
+                </header>
+                
+                <section class="summary-cards" style="margin-bottom: 2rem;">
+                    <div class="card glass">
+                        <h3>Total SaaS Users</h3>
+                        <p class="value" id="admin-total-users">0</p>
+                    </div>
+                    <div class="card glass">
+                        <h3>Total Platform Transactions</h3>
+                        <p class="value" id="admin-total-txns">0</p>
+                    </div>
+                </section>
+                
+                <section class="transactions-section glass">
+                    <h3>Enrolled Users Database</h3>
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>User ID</th>
+                                    <th>Username</th>
+                                    <th>Role</th>
+                                    <th>Joined At</th>
+                                    <th>Total Txns</th>
+                                    <th>Platform Spend</th>
+                                </tr>
+                            </thead>
+                            <tbody id="admin-users-body">
+                                <tr><td colspan="6" style="text-align: center;">Loading admin data...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
             </div>
 
         </main>
