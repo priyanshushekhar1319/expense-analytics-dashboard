@@ -416,3 +416,64 @@ input, select {
     display: block;
     margin-bottom: 0.2rem;
 }
+
+/* Mobile Responsive Adjustments */
+@media (max-width: 768px) {
+    .dashboard-container {
+        flex-direction: column;
+    }
+    
+    .sidebar {
+        width: 100%;
+        height: auto;
+        border-right: none;
+        border-bottom: 1px solid var(--border);
+        padding: 1rem;
+    }
+    
+    .logo h2 { margin-bottom: 1rem; }
+    
+    .nav-menu {
+        flex-direction: row;
+        overflow-x: auto;
+        white-space: nowrap;
+        padding-bottom: 1rem;
+    }
+    
+    .nav-item {
+        margin-right: 0.5rem;
+    }
+    
+    #nav-logout {
+        margin-top: 0 !important;
+    }
+
+    .user-profile {
+        padding-top: 1rem;
+    }
+
+    .main-content {
+        padding: 1rem;
+    }
+
+    header {
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .date-filter-group {
+        flex-wrap: wrap;
+    }
+
+    .charts-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ai-input-group {
+        flex-direction: column;
+    }
+
+    .about-container {
+        grid-template-columns: 1fr;
+    }
+}

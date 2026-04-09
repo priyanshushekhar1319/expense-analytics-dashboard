@@ -48,7 +48,7 @@ function processLoginSuccess(token, role) {
     localStorage.setItem('token', token);
     localStorage.setItem('role', role);
     document.getElementById('auth-container').style.display = 'none';
-    document.getElementById('dashboard-container').style.display = 'block';
+    document.getElementById('dashboard-container').style.display = 'flex';
     
     if (role === 'admin') {
         document.getElementById('nav-admin').style.display = 'block';
