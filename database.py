@@ -50,6 +50,23 @@ class Expense(Base):
     
     owner = relationship("User", back_populates="expenses")
 
+# Ensure tables are created (Safe to run multiple times, it only creates if missing)
+Base.metadata.create_all(bind=engine)
+
+# Auto-provision Admin account on empty database (Render scaling fix)
+import bcrypt
+from datetime import datetime
+db_session = SessionLocal()
+try:
+    if not db_session.query(User).filter(User.username == "admin").first():
+        salt = bcrypt.gensalt()
+        hashed_pw = bcrypt.hashpw("admin123".encode('utf-8'), salt).decode('utf-8')
+        admin_user = User(username="admin", password_hash=hashed_pw, role="admin", created_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S'), full_name="Super Admin")
+        db_session.add(admin_user)
+        db_session.commit()
+finally:
+    db_session.close()
+
 # Dependency
 def get_db():
     db = SessionLocal()
