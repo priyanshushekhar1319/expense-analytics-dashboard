@@ -17,7 +17,8 @@
             <div id="auth-message" style="margin-bottom: 1rem; color: var(--danger); font-size: 0.9rem;"></div>
             
             <form id="auth-form" style="display: flex; flex-direction: column; gap: 1rem;">
-                <input type="text" id="auth-username" placeholder="Username" required style="padding: 0.8rem; background: rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px;">
+                <input type="text" id="auth-fullname" placeholder="Full Name (e.g. John Doe)" style="display: none; padding: 0.8rem; background: rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px;">
+                <input type="text" id="auth-username" placeholder="Username (Login ID)" required style="padding: 0.8rem; background: rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px;">
                 <input type="password" id="auth-password" placeholder="Password" required style="padding: 0.8rem; background: rgba(0,0,0,0.1); border: 1px solid var(--border); color: var(--text-primary); border-radius: 6px;">
                 <button type="submit" id="auth-action-btn" style="padding: 0.8rem; background: var(--primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 1rem;">Login</button>
             </form>

@@ -70,6 +70,16 @@ function setupAuth() {
         document.getElementById('auth-action-btn').textContent = isLoginMode ? 'Login' : 'Sign Up';
         document.getElementById('auth-toggle-text').textContent = isLoginMode ? "Don't have an account?" : "Already have an account?";
         document.getElementById('auth-toggle-link').textContent = isLoginMode ? "Register" : "Login";
+        
+        // Show/Hide Full Name
+        const nameInput = document.getElementById('auth-fullname');
+        if (isLoginMode) {
+            nameInput.style.display = 'none';
+            nameInput.removeAttribute('required');
+        } else {
+            nameInput.style.display = 'block';
+            nameInput.setAttribute('required', 'true');
+        }
     });
     
     document.getElementById('nav-logout').addEventListener('click', (e) => {
@@ -98,9 +108,10 @@ function setupAuth() {
                     msg.textContent = data.detail || "Login failed.";
                 }
             } else {
+                const fn = document.getElementById('auth-fullname').value;
                 const res = await fetch(`${API_BASE_URL}/register`, {
                     method: 'POST', headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({username: u, password: p})
+                    body: JSON.stringify({username: u, password: p, full_name: fn})
                 });
                 const data = await res.json();
                 if (res.ok) {
@@ -108,6 +119,7 @@ function setupAuth() {
                     msg.textContent = "Registration successful! You can now log in.";
                     isLoginMode = true;
                     document.getElementById('auth-action-btn').textContent = 'Login';
+                    document.getElementById('auth-fullname').style.display = 'none';
                 } else {
                     msg.style.color = "var(--danger)";
                     msg.textContent = data.detail || "Registration failed.";

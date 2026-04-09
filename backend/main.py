@@ -55,6 +55,7 @@ def get_db_connection():
 class UserInit(BaseModel):
     username: str
     password: str
+    full_name: str = None
 
 class UserResponse(BaseModel):
     id: int
@@ -99,8 +100,8 @@ def register_user(user: UserInit):
     hashed_pw = bcrypt.hashpw(user.password.encode('utf-8'), salt).decode('utf-8')
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    conn.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
-                 (user.username, hashed_pw, "user", now))
+    conn.execute("INSERT INTO users (username, password_hash, role, created_at, full_name) VALUES (?, ?, ?, ?, ?)",
+                 (user.username, hashed_pw, "user", now, user.full_name))
     conn.commit()
     conn.close()
     return {"status": "success", "message": "User created successfully"}

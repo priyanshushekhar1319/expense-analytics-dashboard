@@ -20,7 +20,8 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    full_name TEXT
 )
 ''')
 
@@ -45,8 +46,8 @@ now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 # 3. Create Admin user
 salt = bcrypt.gensalt()
 hashed_pw = bcrypt.hashpw("admin123".encode('utf-8'), salt).decode('utf-8')
-cursor.execute('INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)',
-              ("admin", hashed_pw, "admin", now))
+cursor.execute('INSERT INTO users (username, password_hash, role, created_at, full_name) VALUES (?, ?, ?, ?, ?)',
+              ("admin", hashed_pw, "admin", now, "Admin User"))
 admin_id = cursor.lastrowid
 
 # 4. Prepare user's custom exact data under the admin account
