@@ -1,74 +1,60 @@
-import sqlite3
-import os
+from database import Base, engine, SessionLocal, User, Expense
 from datetime import datetime
 import uuid
 import bcrypt
+import os
 
-DB_FILE = 'db.sqlite3'
+# Create all tables (drops them first to ensure clean slate)
+# If using SQLite, we can just delete the file.
+from database import DATABASE_URL
+if "sqlite" in DATABASE_URL:
+    try:
+        os.remove('db.sqlite3')
+    except OSError:
+        pass
 
-# Remove existing database to wipe the slate clean
-if os.path.exists(DB_FILE):
-    os.remove(DB_FILE)
+# Create tables via SQLAlchemy
+print("Dropping existing tables if they exist...")
+Base.metadata.drop_all(bind=engine)
 
-conn = sqlite3.connect(DB_FILE)
-cursor = conn.cursor()
+print("Creating new schema...")
+Base.metadata.create_all(bind=engine)
 
-# 1. Create users table
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password_hash TEXT NOT NULL,
-    role TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    full_name TEXT
-)
-''')
+db = SessionLocal()
 
-# 2. Create expenses table with user_id
-cursor.execute('''
-CREATE TABLE IF NOT EXISTS expenses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    transaction_id TEXT UNIQUE,
-    date TEXT,
-    amount REAL,
-    merchant TEXT,
-    category TEXT,
-    description TEXT,
-    status TEXT,
-    FOREIGN KEY(user_id) REFERENCES users(id)
-)
-''')
-
-now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-
-# 3. Create Admin user
+# 1. Create Admin user
+print("Seeding admin account...")
 salt = bcrypt.gensalt()
 hashed_pw = bcrypt.hashpw("admin123".encode('utf-8'), salt).decode('utf-8')
-cursor.execute('INSERT INTO users (username, password_hash, role, created_at, full_name) VALUES (?, ?, ?, ?, ?)',
-              ("admin", hashed_pw, "admin", now, "Admin User"))
-admin_id = cursor.lastrowid
+now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
-# 4. Prepare user's custom exact data under the admin account
+admin_user = User(
+    username="admin",
+    password_hash=hashed_pw,
+    role="admin",
+    created_at=now,
+    full_name="Admin User"
+)
+db.add(admin_user)
+db.commit()
+db.refresh(admin_user)
+admin_id = admin_user.id
+
+# 2. Prepare user's custom exact data under the admin account
+print("Seeding historical expense data...")
 today = datetime.now().strftime('%Y-%m-%d')
 initial_data = [
-    (admin_id, f"TXN-{str(uuid.uuid4())[:8]}", today, 3000.0, "Room Owner", "Rent", "Room Rent", "Completed"),
-    (admin_id, f"TXN-{str(uuid.uuid4())[:8]}", today, 1000.0, "Massi", "Utilities", "Massi / Maid", "Completed"),
-    (admin_id, f"TXN-{str(uuid.uuid4())[:8]}", today, 2000.0, "Local Store", "Groceries", "Food (Rasan)", "Completed"),
-    (admin_id, f"TXN-{str(uuid.uuid4())[:8]}", today, 250.0, "Street Food", "Dining", "Roll", "Completed"),
-    (admin_id, f"TXN-{str(uuid.uuid4())[:8]}", today, 500.0, "Date", "Entertainment", "Girlfriend", "Completed"),
-    (admin_id, f"TXN-{str(uuid.uuid4())[:8]}", today, 400.0, "Cafe", "Dining", "Coffee", "Completed"),
+    Expense(user_id=admin_id, transaction_id=f"TXN-{str(uuid.uuid4())[:8]}", date=today, amount=3000.0, merchant="Room Owner", category="Rent", description="Room Rent", status="Completed"),
+    Expense(user_id=admin_id, transaction_id=f"TXN-{str(uuid.uuid4())[:8]}", date=today, amount=1000.0, merchant="Massi", category="Utilities", description="Massi / Maid", status="Completed"),
+    Expense(user_id=admin_id, transaction_id=f"TXN-{str(uuid.uuid4())[:8]}", date=today, amount=2000.0, merchant="Local Store", category="Groceries", description="Food (Rasan)", status="Completed"),
+    Expense(user_id=admin_id, transaction_id=f"TXN-{str(uuid.uuid4())[:8]}", date=today, amount=250.0, merchant="Street Food", category="Dining", description="Roll", status="Completed"),
+    Expense(user_id=admin_id, transaction_id=f"TXN-{str(uuid.uuid4())[:8]}", date=today, amount=500.0, merchant="Date", category="Entertainment", description="Girlfriend", status="Completed"),
+    Expense(user_id=admin_id, transaction_id=f"TXN-{str(uuid.uuid4())[:8]}", date=today, amount=400.0, merchant="Cafe", category="Dining", description="Coffee", status="Completed"),
 ]
 
-# 5. Insert specific records
-cursor.executemany('''
-INSERT INTO expenses 
-(user_id, transaction_id, date, amount, merchant, category, description, status) 
-VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-''', initial_data)
+db.add_all(initial_data)
+db.commit()
+db.close()
 
-conn.commit()
-conn.close()
-
-print("Multi-tenant database initialized! Admin user created (admin / admin123) with personal seeded data.")
+print("Multi-tenant database initialized via SQLAlchemy ORM!")
+print("Admin user created (admin / admin123) with personal seeded data.")

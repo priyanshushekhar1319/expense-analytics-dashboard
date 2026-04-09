@@ -6,3 +6,5 @@ python-multipart
 pydantic
 PyJWT
 bcrypt
+SQLAlchemy
+psycopg2-binary

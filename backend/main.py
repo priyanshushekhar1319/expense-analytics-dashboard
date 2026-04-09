@@ -3,8 +3,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
+from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
-import sqlite3
 import uuid
 import io
 import csv
@@ -13,6 +14,9 @@ import pandas as pd
 from datetime import datetime, timedelta
 import bcrypt
 import jwt
+
+# SQLAlchemy imports
+from database import get_db, User, Expense
 
 app = FastAPI(title="Ultimate Expense Analytics API", description="Enterprise-grade SaaS backend")
 
@@ -24,7 +28,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DB_FILE = "db.sqlite3"
 SECRET_KEY = "super-secret-saas-key-that-should-be-in-env"
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60
@@ -44,11 +47,6 @@ BUDGETS = {
     "Miscellaneous": 5000
 }
 
-def get_db_connection():
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
 # ----------------------------------------------------
 # AUTHENTICATION & MULTI-TENANCY
 # ----------------------------------------------------
@@ -62,7 +60,7 @@ class UserResponse(BaseModel):
     username: str
     role: str
 
-def get_current_user(token: str = Depends(oauth2_scheme)):
+def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -76,12 +74,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
     except jwt.PyJWTError:
         raise credentials_exception
         
-    conn = get_db_connection()
-    user = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-    conn.close()
+    user = db.query(User).filter(User.username == username).first()
     if user is None:
         raise credentials_exception
-    return UserResponse(id=user["id"], username=user["username"], role=user["role"])
+    return UserResponse(id=user.id, username=user.username, role=user.role)
 
 def check_admin(current_user: UserResponse = Depends(get_current_user)):
     if current_user.role != "admin":
@@ -89,38 +85,39 @@ def check_admin(current_user: UserResponse = Depends(get_current_user)):
     return current_user
 
 @app.post("/api/register")
-def register_user(user: UserInit):
-    conn = get_db_connection()
-    existing = conn.execute("SELECT id FROM users WHERE username = ?", (user.username,)).fetchone()
+def register_user(user: UserInit, db: Session = Depends(get_db)):
+    existing = db.query(User).filter(User.username == user.username).first()
     if existing:
-        conn.close()
         raise HTTPException(status_code=400, detail="Username already registered")
         
     salt = bcrypt.gensalt()
     hashed_pw = bcrypt.hashpw(user.password.encode('utf-8'), salt).decode('utf-8')
     now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     
-    conn.execute("INSERT INTO users (username, password_hash, role, created_at, full_name) VALUES (?, ?, ?, ?, ?)",
-                 (user.username, hashed_pw, "user", now, user.full_name))
-    conn.commit()
-    conn.close()
+    new_user = User(
+        username=user.username, 
+        password_hash=hashed_pw, 
+        role="user", 
+        created_at=now, 
+        full_name=user.full_name
+    )
+    db.add(new_user)
+    db.commit()
     return {"status": "success", "message": "User created successfully"}
 
 @app.post("/api/login")
-def login_user(user: UserInit):
-    conn = get_db_connection()
-    db_user = conn.execute("SELECT * FROM users WHERE username = ?", (user.username,)).fetchone()
-    conn.close()
+def login_user(user: UserInit, db: Session = Depends(get_db)):
+    db_user = db.query(User).filter(User.username == user.username).first()
     
-    if not db_user or not bcrypt.checkpw(user.password.encode('utf-8'), db_user["password_hash"].encode('utf-8')):
+    if not db_user or not bcrypt.checkpw(user.password.encode('utf-8'), db_user.password_hash.encode('utf-8')):
         raise HTTPException(status_code=401, detail="Incorrect username or password")
         
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     expire = datetime.utcnow() + access_token_expires
-    to_encode = {"sub": db_user["username"], "exp": expire}
+    to_encode = {"sub": db_user.username, "exp": expire}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     
-    return {"access_token": encoded_jwt, "token_type": "bearer", "role": db_user["role"]}
+    return {"access_token": encoded_jwt, "token_type": "bearer", "role": db_user.role}
 
 @app.get("/api/me")
 def get_me(current_user: UserResponse = Depends(get_current_user)):
@@ -130,102 +127,107 @@ def get_me(current_user: UserResponse = Depends(get_current_user)):
 # ADMIN CONSOLE ENDPOINTS
 # ----------------------------------------------------
 @app.get("/api/admin/stats")
-def get_admin_stats(admin: UserResponse = Depends(check_admin)):
-    conn = get_db_connection()
-    total_users = conn.execute("SELECT COUNT(*) as c FROM users").fetchone()["c"]
-    total_txns = conn.execute("SELECT COUNT(*) as c FROM expenses").fetchone()["c"]
+def get_admin_stats(admin: UserResponse = Depends(check_admin), db: Session = Depends(get_db)):
+    total_users = db.query(User).count()
+    total_txns = db.query(Expense).count()
     
-    users = conn.execute("""
-        SELECT u.id, u.username, u.role, u.created_at, COUNT(e.id) as txn_count, SUM(e.amount) as total_spend
-        FROM users u LEFT JOIN expenses e ON u.id = e.user_id
-        GROUP BY u.id ORDER BY u.created_at DESC
-    """).fetchall()
-    conn.close()
+    # Left join to get stats per user
+    results = db.query(
+        User.id, 
+        User.username, 
+        User.role, 
+        User.created_at, 
+        func.count(Expense.id).label('txn_count'), 
+        func.sum(Expense.amount).label('total_spend')
+    ).outerjoin(Expense, User.id == Expense.user_id).group_by(User.id).order_by(User.created_at.desc()).all()
+    
+    users = []
+    for r in results:
+        users.append({
+            "id": r.id, "username": r.username, "role": r.role, 
+            "created_at": r.created_at, "txn_count": r.txn_count, "total_spend": r.total_spend
+        })
     
     return {
         "status": "success",
         "aggregate": {"total_users": total_users, "total_transactions": total_txns},
-        "users": [dict(u) for u in users]
+        "users": users
     }
 
 # ----------------------------------------------------
 # SECURED HELPER FUNCTIONS
 # ----------------------------------------------------
-def filter_clause(start_date: str, end_date: str, user_id: int):
-    base = " WHERE user_id = ?"
-    params = [user_id]
+def apply_date_filter(query, start_date: str, end_date: str):
     if start_date and end_date:
-        base += " AND date >= ? AND date <= ?"
-        params.extend([start_date, end_date])
-    return base, tuple(params)
+        return query.filter(Expense.date >= start_date, Expense.date <= end_date)
+    return query
 
 # ----------------------------------------------------
 # 1. TEMPORAL & SUMMARY ENDPOINTS
 # ----------------------------------------------------
 @app.get("/api/months")
-def get_available_months(current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT DISTINCT substr(date, 1, 7) as month FROM expenses WHERE user_id = ? ORDER BY month DESC", (current_user.id,))
-    rows = cursor.fetchall()
-    conn.close()
-    return [row["month"] for row in rows]
+def get_available_months(current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    # substr(date, 1, 7) is SQLite specific. To be DB agnostic, we can pull distinct dates and truncate in python
+    # For small SaaS, this is fast enough.
+    dates = db.query(Expense.date).filter(Expense.user_id == current_user.id).all()
+    months = sorted(list(set([d[0][:7] for d in dates if d[0]])), reverse=True)
+    return months
 
 @app.get("/api/summary")
-def get_summary(start_date: str = None, end_date: str = None, current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    where, params = filter_clause(start_date, end_date, current_user.id)
-    cursor.execute(f"SELECT COUNT(*) as total_transactions, SUM(amount) as total_expenses FROM expenses {where}", params)
-    row = cursor.fetchone()
-    conn.close()
+def get_summary(start_date: str = None, end_date: str = None, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(func.count(Expense.id), func.sum(Expense.amount)).filter(Expense.user_id == current_user.id)
+    query = apply_date_filter(query, start_date, end_date)
+    result = query.first()
+    
     return {
-        "total_transactions": row["total_transactions"] or 0, 
-        "total_expenses": row["total_expenses"] or 0
+        "total_transactions": result[0] or 0, 
+        "total_expenses": result[1] or 0
     }
 
 @app.get("/api/expenses/category")
-def get_category_expenses(start_date: str = None, end_date: str = None, current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    where, params = filter_clause(start_date, end_date, current_user.id)
-    cursor.execute(f"SELECT category, SUM(amount) as total FROM expenses {where} GROUP BY category ORDER BY total DESC", params)
-    rows = cursor.fetchall()
-    conn.close()
-    return [{"category": row["category"], "total": round(row["total"] or 0, 2)} for row in rows]
+def get_category_expenses(start_date: str = None, end_date: str = None, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(Expense.category, func.sum(Expense.amount).label('total')).filter(Expense.user_id == current_user.id)
+    query = apply_date_filter(query, start_date, end_date)
+    results = query.group_by(Expense.category).order_by(func.sum(Expense.amount).desc()).all()
+    
+    return [{"category": r.category, "total": round(r.total or 0, 2)} for r in results]
 
 @app.get("/api/expenses/trend")
-def get_expense_trend(group_by: str = "month", current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    if group_by == "day":
-        cursor.execute("SELECT date as time_val, SUM(amount) as total FROM expenses WHERE user_id = ? GROUP BY date ORDER BY date DESC LIMIT 60", (current_user.id,))
-    else:
-        cursor.execute("SELECT substr(date, 1, 7) as time_val, SUM(amount) as total FROM expenses WHERE user_id = ? GROUP BY time_val ORDER BY time_val ASC", (current_user.id,))
-        
-    rows = cursor.fetchall()
-    conn.close()
+def get_expense_trend(group_by: str = "month", current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    # DB Agnostic Group By Month
+    # We fetch all, and group in Python to avoid Postgres vs SQLite substring logic conflicts
+    expenses = db.query(Expense.date, Expense.amount).filter(Expense.user_id == current_user.id).all()
     
-    if group_by == "day":
-        rows = list(reversed(rows))
+    grouped = {}
+    for d, a in expenses:
+        if not d: continue
+        key = d if group_by == "day" else d[:7]
+        grouped[key] = grouped.get(key, 0) + (a or 0)
         
-    return [{"time": row["time_val"], "total": round(row["total"] or 0, 2)} for row in rows]
+    sorted_keys = sorted(grouped.keys())
+    # If daily, get last 60
+    if group_by == "day":
+        sorted_keys = sorted_keys[-60:]
+        
+    return [{"time": k, "total": round(grouped[k], 2)} for k in sorted_keys]
 
 # ----------------------------------------------------
 # 2. ADVANCED DATA SCIENCE & ML ENDPOINTS
 # ----------------------------------------------------
 @app.get("/api/prediction")
-def get_prediction(current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT substr(date, 1, 7) as month, SUM(amount) as total FROM expenses WHERE user_id = ? GROUP BY month ORDER BY month ASC", (current_user.id,))
-    rows = cursor.fetchall()
-    conn.close()
-    
-    if len(rows) < 3:
+def get_prediction(current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    expenses = db.query(Expense.date, Expense.amount).filter(Expense.user_id == current_user.id).all()
+    grouped = {}
+    for d, a in expenses:
+        if not d: continue
+        m = d[:7]
+        grouped[m] = grouped.get(m, 0) + (a or 0)
+        
+    sorted_months = sorted(grouped.keys())
+    if len(sorted_months) < 3:
         return {"predicted_next_month": 0, "status": "Not enough data"}
         
-    y = np.array([row["total"] for row in rows])
+    y = np.array([grouped[m] for m in sorted_months])
     x = np.arange(len(y))
     
     coefficient = np.polyfit(x, y, 1)
@@ -242,13 +244,12 @@ def get_prediction(current_user: UserResponse = Depends(get_current_user)):
     }
 
 @app.get("/api/health")
-def get_financial_health(current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def get_financial_health(current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
     this_month = datetime.now().strftime("%Y-%m")
-    cursor.execute("SELECT SUM(amount) as total FROM expenses WHERE user_id = ? AND substr(date, 1, 7) = ?", (current_user.id, this_month))
-    spend = cursor.fetchone()["total"] or 0
-    conn.close()
+    
+    # DB agnostic trick: fetch all for the user and sum valid ones
+    expenses = db.query(Expense.date, Expense.amount).filter(Expense.user_id == current_user.id).all()
+    spend = sum([a for d, a in expenses if d and d.startswith(this_month)])
     
     max_budget = sum(BUDGETS.values())
     if max_budget == 0: return {"score": 100}
@@ -258,47 +259,45 @@ def get_financial_health(current_user: UserResponse = Depends(get_current_user))
     return {"score": round(score), "message": "Excellent" if score > 80 else "Needs Attention"}
 
 @app.get("/api/budgets")
-def get_budget_alerts(start_date: str = None, end_date: str = None, current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def get_budget_alerts(start_date: str = None, end_date: str = None, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(Expense.category, func.sum(Expense.amount).label('total')).filter(Expense.user_id == current_user.id)
+    
     if not start_date:
         this_month = datetime.now().strftime("%Y-%m")
-        where, params = " WHERE user_id = ? AND substr(date, 1, 7) = ?", (current_user.id, this_month)
+        # For simplicity, we can do python-side filtering or exact query. Let's do exact query using LIKE for DB agnostic
+        query = query.filter(Expense.date.like(f"{this_month}%"))
     else:
-        where, params = filter_clause(start_date, end_date, current_user.id)
+        query = apply_date_filter(query, start_date, end_date)
         
-    cursor.execute(f"SELECT category, SUM(amount) as total FROM expenses {where} GROUP BY category", params)
-    rows = cursor.fetchall()
-    conn.close()
+    results = query.group_by(Expense.category).all()
     
-    results = []
-    for row in rows:
-        cat = row["category"]
-        spend = row["total"] or 0
-        limit = BUDGETS.get(cat, 5000)
+    cat_spent = {r.category: (r.total or 0) for r in results}
+    
+    response = []
+    # Display all budgets, even if 0 spent
+    for cat, limit in BUDGETS.items():
+        spend = cat_spent.get(cat, 0)
         percent = (spend / limit) * 100
         
         status = "safe"
         if percent >= 80 and percent < 100: status = "warning"
         elif percent >= 100: status = "danger"
         
-        results.append({
+        response.append({
             "category": cat,
             "spent": round(spend, 2),
             "limit": limit,
             "percent": min(100, round(percent, 1)),
             "status": status
         })
-    return results
+    return response
 
 class ChatMessage(BaseModel):
     message: str
 
 @app.post("/api/chat")
-def ai_chat(msg: ChatMessage, current_user: UserResponse = Depends(get_current_user)):
+def ai_chat(msg: ChatMessage, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
     text = msg.message.lower()
-    conn = get_db_connection()
-    cursor = conn.cursor()
     uid = current_user.id
     
     categories = [k.lower() for k in BUDGETS.keys()]
@@ -322,71 +321,53 @@ def ai_chat(msg: ChatMessage, current_user: UserResponse = Depends(get_current_u
     
     elif len(mentioned_cats) > 0 and max_score == 0:
         c = mentioned_cats[0]
-        cursor.execute("SELECT SUM(amount) as t FROM expenses WHERE user_id=? AND lower(category) = ?", (uid, c,))
-        res = cursor.fetchone()
-        t = res["t"] or 0
+        # SQLA case-insensitive match
+        t = db.query(func.sum(Expense.amount)).filter(Expense.user_id == uid, func.lower(Expense.category) == c).scalar() or 0
         response = f"Aapne '{c.title()}' pe total ₹{t:,.2f} spend kiya hai. Iska limit ₹{BUDGETS[c.title()]:,.2f} hai."
 
     elif top_intent == "highest":
-        cursor.execute("SELECT category, SUM(amount) as t FROM expenses WHERE user_id=? GROUP BY category ORDER BY t DESC LIMIT 1", (uid,))
-        res = cursor.fetchone()
-        if res: response = f"Aapne sabse zyada '{res['category']}' pe spend kiya hai (Total: ₹{res['t']:,.2f})."
+        res = db.query(Expense.category, func.sum(Expense.amount).label('t')).filter(Expense.user_id == uid).group_by(Expense.category).order_by(func.sum(Expense.amount).desc()).first()
+        if res: response = f"Aapne sabse zyada '{res.category}' pe spend kiya hai (Total: ₹{res.t:,.2f})."
         else: response = "Abhi koi transactions nahi mile."
         
     elif top_intent == "lowest":
-        cursor.execute("SELECT category, SUM(amount) as t FROM expenses WHERE user_id=? GROUP BY category ORDER BY t ASC LIMIT 1", (uid,))
-        res = cursor.fetchone()
-        if res: response = f"Aapka sabse kam kharch '{res['category']}' category me hua hai (₹{res['t']:,.2f})."
+        res = db.query(Expense.category, func.sum(Expense.amount).label('t')).filter(Expense.user_id == uid).group_by(Expense.category).order_by(func.sum(Expense.amount).asc()).first()
+        if res: response = f"Aapka sabse kam kharch '{res.category}' category me hua hai (₹{res.t:,.2f})."
         else: response = "Data nahi mila."
 
     elif top_intent == "total":
-        cursor.execute("SELECT SUM(amount) as t FROM expenses WHERE user_id=?", (uid,))
-        res = cursor.fetchone()
-        t = res["t"] or 0
+        t = db.query(func.sum(Expense.amount)).filter(Expense.user_id == uid).scalar() or 0
         response = f"Aapka overall Recorded Spend abhi tak ₹{t:,.2f} hai."
 
     elif top_intent == "avg":
-        cursor.execute("SELECT SUM(amount) / COUNT(DISTINCT substr(date, 1, 7)) as avg_spend FROM expenses WHERE user_id=?", (uid,))
-        res = cursor.fetchone()
-        a = res["avg_spend"] or 0
+        expenses = db.query(Expense.date, Expense.amount).filter(Expense.user_id == uid).all()
+        months = set([d[:7] for d, a in expenses if d])
+        total = sum([a for d, a in expenses if a])
+        a = (total / len(months)) if len(months) > 0 else 0
         response = f"Aapka Average Monthly expense lagbhag ₹{a:,.2f} aata hai."
 
     elif top_intent == "save":
-        cursor.execute("SELECT category, SUM(amount) as t FROM expenses WHERE user_id=? GROUP BY category ORDER BY t DESC LIMIT 1", (uid,))
-        res = cursor.fetchone()
-        if res: response = f"Agar aap apne top expense '{res['category']}' pe 15% bachat karein, toh monthly ₹{res['t']*0.15:,.2f} bach jayenge."
+        res = db.query(Expense.category, func.sum(Expense.amount).label('t')).filter(Expense.user_id == uid).group_by(Expense.category).order_by(func.sum(Expense.amount).desc()).first()
+        if res: response = f"Agar aap apne top expense '{res.category}' pe 15% bachat karein, toh monthly ₹{res.t*0.15:,.2f} bach jayenge."
         else: response = "Sufficient data nahi hai suggestions dene ke liye."
 
     elif top_intent == "predict":
         response = "Aapka data Linear Regression se analyze ho raha hai prediction box mein. Aap waise normally budget me chal rahe hain."
 
-    conn.close()
     return {"reply": response}
 
 # ----------------------------------------------------
 # 3. CRUD & DATA PIPELINE ENDPOINTS
 # ----------------------------------------------------
 @app.get("/api/transactions")
-def get_recent_transactions(limit: int = 50, start_date: str = None, end_date: str = None, category: str = None, current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    query = "SELECT * FROM expenses WHERE user_id = ?"
-    params = [current_user.id]
-    
-    if start_date and end_date:
-        query += " AND date >= ? AND date <= ?"
-        params.extend([start_date, end_date])
+def get_recent_transactions(limit: int = 50, start_date: str = None, end_date: str = None, category: str = None, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    query = db.query(Expense).filter(Expense.user_id == current_user.id)
+    query = apply_date_filter(query, start_date, end_date)
     if category:
-        query += " AND category = ?"
-        params.append(category)
+        query = query.filter(Expense.category == category)
         
-    query += " ORDER BY date DESC LIMIT ?"
-    params.append(limit)
-    
-    cursor.execute(query, tuple(params))
-    rows = cursor.fetchall()
-    conn.close()
-    return [dict(row) for row in rows]
+    results = query.order_by(Expense.date.desc()).limit(limit).all()
+    return results
 
 class TransactionCreate(BaseModel):
     amount: float
@@ -395,59 +376,70 @@ class TransactionCreate(BaseModel):
     date: str = None
 
 @app.post("/api/transactions")
-def add_transaction(txn: TransactionCreate, current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def add_transaction(txn: TransactionCreate, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
     txn_id = f"TXN-M-{str(uuid.uuid4())[:8].upper()}"
     txn_date = txn.date if txn.date else datetime.now().strftime("%Y-%m-%d")
-    cursor.execute("INSERT INTO expenses (user_id, transaction_id, date, amount, merchant, category, description, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", 
-                  (current_user.id, txn_id, txn_date, txn.amount, txn.merchant, txn.category, "Manual", "Completed"))
-    conn.commit()
-    conn.close()
+    
+    new_txn = Expense(
+        user_id=current_user.id,
+        transaction_id=txn_id,
+        date=txn_date,
+        amount=txn.amount,
+        merchant=txn.merchant,
+        category=txn.category,
+        description="Manual",
+        status="Completed"
+    )
+    db.add(new_txn)
+    db.commit()
     return {"status": "success", "transaction_id": txn_id}
 
 @app.delete("/api/transactions/{transaction_id}")
-def delete_transaction(transaction_id: str, current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM expenses WHERE transaction_id = ? AND user_id = ?", (transaction_id, current_user.id))
-    conn.commit()
-    conn.close()
+def delete_transaction(transaction_id: str, current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    expense = db.query(Expense).filter(Expense.transaction_id == transaction_id, Expense.user_id == current_user.id).first()
+    if expense:
+        db.delete(expense)
+        db.commit()
     return {"status": "success"}
 
 @app.post("/api/upload")
-async def bulk_upload(file: UploadFile = File(...), current_user: UserResponse = Depends(get_current_user)):
+async def bulk_upload(file: UploadFile = File(...), current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
     content = await file.read()
     df = pd.read_csv(io.StringIO(content.decode("utf-8")))
     
-    if 'transaction_id' not in df.columns:
-        df['transaction_id'] = [f"TXN-U-{str(uuid.uuid4())[:8].upper()}" for _ in range(len(df))]
-    if 'status' not in df.columns:
-        df['status'] = 'Completed'
-    if 'description' not in df.columns:
-        df['description'] = 'Bulk Upload'
-        
-    df['user_id'] = current_user.id
-        
-    conn = sqlite3.connect(DB_FILE)
-    df.to_sql("expenses", conn, if_exists="append", index=False)
-    conn.close()
+    rows_to_insert = []
     
-    return {"status": "success", "rows_inserted": len(df)}
+    for _, row in df.iterrows():
+        txn_id = f"TXN-U-{str(uuid.uuid4())[:8].upper()}"
+        status = 'Completed' if 'status' not in row else row['status']
+        desc = 'Bulk Upload' if 'description' not in row else row['description']
+        
+        ex = Expense(
+            user_id=current_user.id,
+            transaction_id=txn_id,
+            date=str(row['date']),
+            amount=float(row['amount']),
+            merchant=str(row['merchant']),
+            category=str(row['category']),
+            description=desc,
+            status=status
+        )
+        rows_to_insert.append(ex)
+        
+    db.add_all(rows_to_insert)
+    db.commit()
+    
+    return {"status": "success", "rows_inserted": len(rows_to_insert)}
 
 @app.get("/api/export")
-def export_transactions(current_user: UserResponse = Depends(get_current_user)):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM expenses WHERE user_id = ? ORDER BY date DESC LIMIT 5000", (current_user.id,))
-    rows = cursor.fetchall()
-    conn.close()
+def export_transactions(current_user: UserResponse = Depends(get_current_user), db: Session = Depends(get_db)):
+    expenses = db.query(Expense).filter(Expense.user_id == current_user.id).order_by(Expense.date.desc()).limit(5000).all()
     
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["transaction_id", "date", "amount", "merchant", "category", "description", "status"])
-    for row in rows:
-        writer.writerow([row["transaction_id"], row["date"], row["amount"], row["merchant"], row["category"], row["description"], row["status"]])
+    for row in expenses:
+        writer.writerow([row.transaction_id, row.date, row.amount, row.merchant, row.category, row.description, row.status])
     output.seek(0)
     return StreamingResponse(iter([output.getvalue()]), media_type="text/csv", headers={"Content-Disposition": "attachment; filename=cleaned_expenses.csv"})
 
